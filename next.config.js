@@ -1,8 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  output: 'export',
   reactStrictMode: true,
   images: {
     domains: ['cdn.rive.app', 'images.unsplash.com'],
+    unoptimized: true,
   },
   eslint: {
     ignoreDuringBuilds: true,
