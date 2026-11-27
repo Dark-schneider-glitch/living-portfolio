@@ -33,6 +33,23 @@ function isVideoResponse(value: unknown): value is { videos: Video[] } {
   );
 }
 
+const CHANNEL_ID = 'UCSTLqKz57q1LXAgF5RDRJpA';
+const FEED_URL = `https://www.youtube.com/feeds/videos.xml?channel_id=${CHANNEL_ID}`;
+
+function decodeXml(value: string) {
+  return value
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/"/g, '"')
+    .replace(/&apos;/g, "'");
+}
+
+function getTagValue(entry: string, tag: string) {
+  const match = entry.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`));
+  return match?.[1] ? decodeXml(match[1].trim()) : '';
+}
+
 export function YouTubeSection() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,41 +60,44 @@ export function YouTubeSection() {
 
     const loadVideos = async () => {
       try {
-        const response = await fetch('/api/youtube', { cache: 'no-store' });
-        const contentType = response.headers.get('content-type') ?? '';
-        if (!contentType.includes('application/json')) {
-          throw new Error('Latest videos are temporarily unavailable.');
-        }
-
-        const data: unknown = await response.json();
+        // Use a CORS proxy to fetch the YouTube RSS feed client-side
+        const proxyUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(FEED_URL)}`;
+        const response = await fetch(proxyUrl, { cache: 'no-store' });
 
         if (!response.ok) {
-          const message =
-            typeof data === 'object' &&
-            data !== null &&
-            'error' in data &&
-            typeof data.error === 'string'
-              ? data.error
-              : 'Unable to load videos right now.';
-          throw new Error(message);
+          throw new Error('Failed to fetch YouTube feed');
         }
 
-        if (!isVideoResponse(data)) {
-          throw new Error('The YouTube feed returned an unexpected response.');
+        const data = await response.json();
+
+        if (data.status !== 'ok' || !data.items) {
+          throw new Error('Invalid feed response');
         }
+
+        const parsedVideos: Video[] = data.items
+          .slice(0, 3)
+          .map((item: any) => {
+            // Extract video ID from YouTube URL
+            const videoIdMatch = item.link.match(/(?:v=|\/)([0-9A-Za-z_-]{11})(?:&|$)/);
+            const videoId = videoIdMatch?.[1];
+
+            if (!videoId || !item.title || !item.pubDate) return null;
+
+            return {
+              id: videoId,
+              title: item.title,
+              published: item.pubDate,
+            };
+          })
+          .filter((v): v is Video => v !== null);
 
         if (active) {
-          setVideos(data.videos);
+          setVideos(parsedVideos);
           setError('');
         }
       } catch (loadError) {
         if (active) {
-          const message =
-            loadError instanceof Error
-              ? loadError.message.includes('JSON')
-                ? 'Latest videos are temporarily unavailable.'
-                : loadError.message
-              : 'Unable to load videos right now.';
+          const message = loadError instanceof Error ? loadError.message : 'Unable to load videos right now.';
           setError(message);
           console.error('Unable to load latest YouTube videos:', loadError);
         }
