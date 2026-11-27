@@ -89,7 +89,7 @@ export function YouTubeSection() {
               published: item.pubDate,
             };
           })
-          .filter((v): v is Video => v !== null);
+          .filter((v: Video | null): v is Video => v !== null);
 
         if (active) {
           setVideos(parsedVideos);
